@@ -1,27 +1,46 @@
-name: Deploy Spring Boot to EC2
+name: Deploy Spring Boot (Gradle) to EC2
 
 on:
   push:
-    branches: [ main ]   # or your branch
+    branches: [ main ]  # run on main branch pushes
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ Checkout code
       - name: Checkout Code
         uses: actions/checkout@v3
 
+      # 2️⃣ Set up JDK
       - name: Set up JDK
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Build with Maven
-        run: mvn clean package -DskipTests
+      # 3️⃣ Make gradlew executable
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-      - name: Deploy to EC2
+      # 4️⃣ Build with Gradle (skip tests)
+      - name: Build with Gradle (skip tests)
+        run: ./gradlew clean build -x test
+
+      # 5️⃣ Upload jar to EC2
+      - name: Upload jar to EC2
+        uses: appleboy/scp-action@v0.1.4
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # Adjust the jar path according to your Gradle build output
+          source: build/libs/*.jar
+          target: /home/ubuntu/app/app.jar
+
+      # 6️⃣ Restart app on EC2
+      - name: Restart App on EC2
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -29,8 +48,5 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd /home/ubuntu/app
-            # Kill previous app
             pkill -f 'java -jar' || true
-            # Remove old jar
-            rm -f app.jar
-            # Upload new jar (we will scp below)
+            nohup java -jar app.jar > app.log 2>&1 &
